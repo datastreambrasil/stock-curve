@@ -23,18 +23,31 @@ public static class QuoteGenerator
 
     public static Quote Next(string? ticker = null)
     {
-        ticker ??= Tickers[Random.Shared.Next(LastPrice.Count)];
-
-        decimal price;
-        lock (Gate)
+        // Se não veio um ticker, sorteia um qualquer da lista.
+        if (ticker is null)
         {
-            var current = LastPrice.TryGetValue(ticker, out var p) ? p : 10.00m;
-            // Varia até 0,5% para cima ou para baixo a cada negócio.
-            var variation = (decimal)((Random.Shared.NextDouble() - 0.5) * 0.01);
-            price = Math.Round(Math.Max(0.01m, current * (1 + variation)), 2);
-            LastPrice[ticker] = price;
+            var allTickers = Tickers;
+            var randomIndex = Random.Shared.Next(allTickers.Length);
+            ticker = allTickers[randomIndex];
         }
 
-        return new Quote(ticker, price, Random.Shared.Next(100, 10_000), DateTimeOffset.UtcNow);
+        decimal newPrice;
+        lock (Gate)
+        {
+            var oldPrice = LastPrice.TryGetValue(ticker, out var price) ? price : 10.00m;
+
+            // Sorteia uma variação entre -0,5% e +0,5% para o novo preço.
+            var percentChange = (Random.Shared.NextDouble() - 0.5) / 100;
+            newPrice = oldPrice * (1 + (decimal)percentChange);
+            newPrice = Math.Max(0.01m, newPrice);
+            newPrice = Math.Round(newPrice, 2);
+
+            LastPrice[ticker] = newPrice;
+        }
+
+        var volume = Random.Shared.Next(100, 10_000);
+        var tradedAt = DateTimeOffset.UtcNow;
+
+        return new Quote(ticker, newPrice, volume, tradedAt);
     }
 }

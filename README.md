@@ -65,6 +65,7 @@ Rode `make perf` e anote o `http_reqs/s`. Depois mexa nas variáveis do serviço
 | `Kafka__LingerMs: "0"` | lotes menores, menos throughput |
 | `Kafka__LingerMs: "20"` | lotes maiores, mais throughput e mais latência |
 | `Kafka__CompressionType: none` | mais bytes na rede |
+| `Kafka__EnableIdempotence: "false"` | aumento de throughput |
 
 Para inspecionar o que chegou:
 

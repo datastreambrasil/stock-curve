@@ -67,7 +67,7 @@ services:
       Kafka__Topic: b3.quotes
       Kafka__EnableIdempotence: "true"
       Kafka__LingerMs: "5"
-      Kafka__CompressionType: lz4
+      Kafka__CompressionType: none
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 5s
