@@ -8,9 +8,13 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:19092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      # PROXY é o caminho do produtor: o Kafka anuncia "toxiproxy:29092" nesse
+      # listener, então o cliente volta pelo proxy depois do metadata. Sem um
+      # listener só para isso, o produtor pegaria "kafka:9092" no metadata e
+      # falaria direto com o broker, passando por fora do Toxiproxy.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19092,PROXY://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:19092,PROXY://toxiproxy:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PROXY:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
@@ -54,16 +58,57 @@ services:
               properties:
                 bootstrap.servers: "kafka:9092"
 
-  producer:
-    build: ./src/StockCurve.Producer
-    container_name: stock-curve-producer
+  # Fica no meio do caminho produtor -> Kafka para a gente injetar latência de
+  # rede. Em localhost o round-trip é ~0, e aí nenhuma configuração de batching
+  # faz sentido; com 3 ms o laboratório passa a parecer um cluster de verdade.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: stock-curve-toxiproxy
     depends_on:
       kafka:
         condition: service_healthy
     ports:
+      - "8474:8474" # API do Toxiproxy (dá para mexer na latência com o lab de pé)
+    volumes:
+      - ./perf/toxiproxy.json:/config/toxiproxy.json:ro
+    command: ["-host=0.0.0.0", "-config", "/config/toxiproxy.json"]
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "-h", "http://localhost:8474", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # O arquivo de config do Toxiproxy cria o proxy mas ignora toxics, então a
+  # latência entra por aqui, pela API. DELETE antes do POST para o "make up"
+  # poder rodar de novo sem dar erro de toxic duplicado.
+  toxiproxy-init:
+    image: curlimages/curl:8.11.1
+    container_name: stock-curve-toxiproxy-init
+    depends_on:
+      toxiproxy:
+        condition: service_healthy
+    environment:
+      LATENCY_MS: "${LATENCY_MS:-3}"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        curl -s -X DELETE http://toxiproxy:8474/proxies/kafka/toxics/net_latency > /dev/null 2>&1
+        curl -sf -X POST http://toxiproxy:8474/proxies/kafka/toxics \
+          -H 'Content-Type: application/json' \
+          -d "{\"name\":\"net_latency\",\"type\":\"latency\",\"stream\":\"downstream\",\"attributes\":{\"latency\":$${LATENCY_MS},\"jitter\":0}}"
+        echo ""
+        echo "  latencia produtor -> kafka: $${LATENCY_MS}ms por ida-e-volta"
+
+  producer:
+    build: ./src/StockCurve.Producer
+    container_name: stock-curve-producer
+    depends_on:
+      toxiproxy-init:
+        condition: service_completed_successfully
+    ports:
       - "5001:8080"
     environment:
-      Kafka__BootstrapServers: kafka:9092
+      Kafka__BootstrapServers: toxiproxy:29092
       Kafka__Topic: b3.quotes
       Kafka__EnableIdempotence: "true"
       Kafka__LingerMs: "5"
