@@ -75,10 +75,6 @@ espalharia as mensagens e a curva sairia embaralhada.
 
 ## Exercício
 
-`POST /quotes` publica **uma** cotação e dá `await` na entrega. O tempo de cada
-requisição é o round-trip até o broker, e o throughput é 100 VUs divididos por
-essa latência. É isso que explica os números abaixo.
-
 Rode `make perf`, anote o `http_reqs`, mexa nas variáveis do `producer` no
 `docker-compose.yml`, suba com `make up` e compare.
 
