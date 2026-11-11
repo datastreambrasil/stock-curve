@@ -5,19 +5,22 @@ cotações de papéis da B3 no Kafka, e um consumidor usa esses eventos para mon
 a curva de preço de cada ação.
 
 ```
-  Produtor .NET  ──►  Toxiproxy  ──►  Kafka  ──►  Consumidor .NET  ──►  Curva de preço
-    (módulo 1)         +3 ms        b3.quotes        (módulo 2)
+  Produtor .NET  ──►  Toxiproxy  ──►  Kafka  ──►  Consumidor .NET  ──►  SPA
+    (módulo 1)         +3 ms        b3.quotes        (módulo 2)        (gráfico)
 ```
 
-Este repositório está no estado do **módulo 1**: só o produtor, a infra e a
-medição de throughput. O consumidor entra no módulo 2.
+O produtor é o assunto do **módulo 1**: idempotência, chave, batching e
+throughput. O consumidor é o do **módulo 2**: at-least-once, commit manual e
+idempotência do lado de quem lê.
 
 ## O que tem aqui
 
 | Caminho | O que é |
 | --- | --- |
 | `src/StockCurve.Producer` | API mínima em .NET que publica cotações no Kafka |
-| `docker-compose.yml` | Kafka (KRaft), Toxiproxy, AKHQ e o produtor |
+| `src/StockCurve.Consumer` | API mínima em .NET que consome em at-least-once e monta a curva |
+| `web/` | SPA em Vite que desenha a curva de preço de cada papel |
+| `docker-compose.yml` | Kafka (KRaft), Toxiproxy, AKHQ, produtor, consumidor e SPA |
 | `perf/produce.js` | Teste de carga em k6 |
 | `perf/toxiproxy.json` | Proxy que põe latência de rede entre o produtor e o Kafka |
 | `Makefile` | Atalhos para subir, produzir, inspecionar e medir |
@@ -27,15 +30,23 @@ medição de throughput. O consumidor entra no módulo 2.
 Precisa de Docker e `make`.
 
 ```bash
-make up        # sobe Kafka, Toxiproxy, AKHQ e o produtor
+make up        # sobe tudo
+make feed      # publica cotações sem parar (Ctrl+C encerra)
 make produce   # publica 10 cotações
 make perf      # roda o teste de carga do k6
 make down      # derruba tudo
 ```
 
+Abra http://localhost:5173, rode `make feed` e veja a curva andar.
+
+- Curva (SPA): http://localhost:5173
+- Consumidor: http://localhost:5002
 - Produtor: http://localhost:5001
 - AKHQ: http://localhost:8080
 - Toxiproxy (API): http://localhost:8474
+
+Para mexer no SPA sem subir container, `cd web && npm install && npm run dev` —
+o Vite redireciona `/api` para `localhost:5002`, igual ao nginx do Docker.
 
 `make` sem argumento lista todos os comandos.
 
@@ -55,7 +66,7 @@ curl -X POST http://localhost:5001/quotes   # timeout
 curl -X POST http://localhost:8474/proxies/kafka -d '{"enabled":true}'
 ```
 
-## As duas coisas para prestar atenção
+## As duas coisas do produtor
 
 **1. O produtor é idempotente.** Em `QuoteProducer.cs`, `EnableIdempotence = true`
 faz o broker numerar as mensagens e descartar as repetidas. É o que deixa a gente
@@ -72,6 +83,64 @@ make produce-ticker TICKER=VALE3 N=5
 
 Repare que cada papel sempre vai para a mesma partição. Sem chave, o produtor
 espalharia as mensagens e a curva sairia embaralhada.
+
+## As duas coisas do consumidor
+
+**1. Processa, depois commita.** Em `QuoteConsumer.cs` o laço é
+`Consume()` → aplica na curva → `Commit()`, com `EnableAutoCommit = false`. O
+offset só anda quando o efeito já existe. Se o processo morre entre as duas
+linhas, o Kafka ainda aponta para o registro anterior e ele volta: **nada se
+perde, e alguma coisa se repete**. Isso é at-least-once.
+
+O caminho oposto — commitar antes de processar — é at-most-once: rápido e capaz
+de perder cotação.
+
+**2. Quem lida com a repetição é o consumidor.** `QuoteStore.Apply` usa a chave
+de negócio (ticker + instante da negociação) para decidir se o ponto é novo, e
+devolve `false` quando ele já estava na curva. O Kafka garante que a mensagem
+chega; não repetir o **efeito** é problema nosso.
+
+Para ver acontecendo, publique a mesma cotação duas vezes direto no tópico:
+
+```bash
+Q='{"ticker":"PETR4","price":38.50,"volume":100,"tradedAt":"2026-01-01T12:00:00Z"}'
+printf 'PETR4:%s\nPETR4:%s\n' "$Q" "$Q" | docker compose exec -T kafka \
+  /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 \
+  --topic b3.quotes --property parse.key=true --property key.separator=:
+
+make logs-consumer   # "Cotação repetida de PETR4 ..., descartada pela deduplicação"
+```
+
+Dois registros entraram no log, um ponto entrou na curva.
+
+### Por que não dá para demonstrar isso matando o container
+
+A tentação é `docker compose kill consumer` para forçar o reprocesso. **O
+registro volta mesmo** — o consumidor novo pergunta ao broker onde o grupo
+parou e retoma do último offset commitado, sem `Seek` nenhum. Mas a curva mora
+em memória: ela morre junto com o processo, e o consumidor que sobe não tem
+contra o que comparar. Ele reconstrói tudo do tópico, e o reprocesso passa em
+branco.
+
+A deduplicação protege o processo **vivo**: redelivery depois de um commit que
+falhou, uma partição que volta num rebalance, uma retentativa do produtor que
+duplicou a mensagem. Num serviço de verdade, onde o efeito é uma linha no banco
+e não um ponto em memória, é exatamente esse o caso que importa — e o banco
+sobrevive ao restart.
+
+Exercício: troque o commit por registro por um commit a cada N
+(`consumer.Commit()` sem argumento, fora do laço interno). A janela de
+reprocesso passa de 1 para N registros. Depois tire a deduplicação do `Apply` e
+publique a cotação repetida de novo: a curva ganha pontos duplicados. É a
+diferença entre o Kafka entregar pelo menos uma vez e o seu serviço aplicar
+exatamente uma vez.
+
+## A API do consumidor
+
+| Endpoint | O que devolve |
+| --- | --- |
+| `GET /tickers` | papéis já vistos, com último preço e variação |
+| `GET /quotes/{ticker}` | a curva de preço do papel (o que o gráfico desenha) |
 
 ## Exercício
 

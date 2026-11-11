@@ -1,0 +1,115 @@
+/* Paleta: um tema só, fundo branco. Toda cor da tela sai daqui — inclusive as
+   do gráfico, que o chart.ts lê destas variáveis. A cor da série nunca vai para
+   o texto: quem carrega a identidade é a marca ao lado. */
+:root {
+  color-scheme: light;
+  --page: #ffffff;        /* fundo da página */
+  --surface: #ffffff;     /* fundo dos cards */
+  --ink: #0b0b0b;         /* texto principal */
+  --ink-2: #52514e;       /* texto de apoio */
+  --muted: #898781;       /* rótulos de eixo e cabeçalho de tabela */
+  --grid: #e1e0d9;        /* linhas de grade do gráfico */
+  --series: #2a78d6;      /* a linha da curva */
+  --series-wash: rgba(42, 120, 214, 0.1);  /* o preenchimento sob a linha */
+  --up: #006300;
+  --down: #d03b3b;
+  --border: rgba(11, 11, 11, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--ink-2);
+}
+
+#app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 24px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.head h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+.head p { margin: 4px 0 0; color: var(--ink-2); }
+
+h2 { margin: 0; font-size: 15px; font-weight: 600; }
+
+.alert {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid #d03b3b;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-2);
+}
+
+/* Tiles */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.tile-label { font-size: 12px; color: var(--muted); }
+.tile-value { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.tile-note { font-size: 12px; color: var(--ink-2); min-height: 18px; }
+.tile-note.up { color: var(--up); }
+.tile-note.down { color: var(--down); }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.filters { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chip {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip:hover { border-color: var(--muted); color: var(--ink); }
+.chip.on { background: var(--series); border-color: var(--series); color: #ffffff; }
+
+/* Gráfico — o Chart.js desenha dentro deste canvas, que ocupa a altura fixa
+   do container e a largura disponível. */
+.chart { position: relative; height: 320px; }

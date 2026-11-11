@@ -10,9 +10,11 @@ MS      ?= 3
 help: ## Lista os comandos disponíveis
 	@grep -E '^[a-zA-Z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-up: ## Sobe Kafka, Toxiproxy, AKHQ e o produtor .NET
+up: ## Sobe Kafka, Toxiproxy, AKHQ, o produtor, o consumidor e o SPA
 	LATENCY_MS=$(MS) $(COMPOSE) up -d --build
 	@echo ""
+	@echo "  Curva     http://localhost:5173  (SPA)"
+	@echo "  Consumidor http://localhost:5002"
 	@echo "  Produtor  http://localhost:5001"
 	@echo "  AKHQ      http://localhost:8080"
 	@echo "  Toxiproxy http://localhost:8474  (latencia: $(MS)ms)"
@@ -23,6 +25,9 @@ down: ## Derruba tudo e apaga os dados do Kafka
 logs: ## Acompanha o log do produtor
 	$(COMPOSE) logs -f producer
 
+logs-consumer: ## Acompanha o log do consumidor
+	$(COMPOSE) logs -f consumer
+
 produce: ## Publica N cotações (make produce N=50)
 	@for i in $$(seq 1 $(N)); do \
 		curl -s -X POST http://localhost:5001/quotes; echo; \
@@ -31,6 +36,13 @@ produce: ## Publica N cotações (make produce N=50)
 produce-ticker: ## Publica N cotações do mesmo papel (make produce-ticker TICKER=PETR4)
 	@for i in $$(seq 1 $(N)); do \
 		curl -s -X POST http://localhost:5001/quotes/$(or $(TICKER),PETR4); echo; \
+	done
+
+feed: ## Publica cotações sem parar, para a curva andar na tela (Ctrl+C encerra)
+	@echo "  publicando em http://localhost:5001 — Ctrl+C para parar"
+	@while true; do \
+		curl -s -X POST http://localhost:5001/quotes > /dev/null; \
+		sleep 0.2; \
 	done
 
 perf: ## Roda o teste de carga do k6 contra o produtor
@@ -55,4 +67,4 @@ size: ## Bytes no disco, mensagens e média de bytes/mensagem (efeito da compres
 		| awk -F: '{s+=$$3} END {print s}'); \
 	awk -v b=$$bytes -v m=$$msgs 'BEGIN {printf "  %d bytes / %d mensagens = %.1f bytes por mensagem\n", b, m, (m ? b/m : 0)}'
 
-.PHONY: help up down logs produce produce-ticker perf topic consume count size
+.PHONY: help up down logs logs-consumer produce produce-ticker feed perf topic consume count size

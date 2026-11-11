@@ -119,6 +119,45 @@ services:
       timeout: 5s
       retries: 20
 
+  # O consumidor do módulo 2: lê b3.quotes em at-least-once e mantém a curva de
+  # preço de cada papel em memória, servida por uma API para o SPA desenhar.
+  #
+  # Repare que ele fala com "kafka:9092", e não com o Toxiproxy: a latência
+  # injetada é um instrumento do módulo 1, para o batching do produtor aparecer.
+  # Do lado do consumidor ela só atrapalharia a leitura da curva ao vivo.
+  consumer:
+    build: ./src/StockCurve.Consumer
+    container_name: stock-curve-consumer
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "5002:8080"
+    environment:
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__Topic: b3.quotes
+      Kafka__GroupId: stock-curve-chart
+      # earliest: um grupo novo nasce lendo tudo que ainda está na retenção, e
+      # a curva já aparece cheia na primeira vez que o lab sobe.
+      Kafka__AutoOffsetReset: earliest
+      Kafka__HistorySize: "500"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # SPA em Vite servido por nginx, que também faz o proxy de /api para a API do
+  # consumidor — o mesmo prefixo que o Vite usa em "npm run dev".
+  web:
+    build: ./web
+    container_name: stock-curve-web
+    depends_on:
+      consumer:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+
   # Só roda sob demanda (make perf), por isso fica atrás de um profile.
   k6:
     image: grafana/k6:0.57.0

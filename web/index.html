@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>stock-curve — curva de preço</title>
+  </head>
+  <body>
+    <!-- A página inteira é estática: o JavaScript só troca os textos marcados
+         com id. Quem cuida da aparência é o style.css. -->
+    <main id="app">
+      <header class="head">
+        <h1>stock-curve</h1>
+        <p>A curva de preço que o consumidor .NET monta lendo o tópico <code>b3.quotes</code>.</p>
+      </header>
+
+      <p class="alert" id="alert" hidden></p>
+
+      <section class="tiles">
+        <div class="tile">
+          <span class="tile-label">Último preço</span>
+          <span class="tile-value" id="price">—</span>
+          <span class="tile-note" id="change"></span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Máxima</span>
+          <span class="tile-value" id="high">—</span>
+          <span class="tile-note" id="high-at"></span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Mínima</span>
+          <span class="tile-value" id="low">—</span>
+          <span class="tile-note" id="low-at"></span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Pontos na curva</span>
+          <span class="tile-value" id="points">0</span>
+          <span class="tile-note" id="open"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2 id="chart-title">Curva de preço</h2>
+          <div class="filters" id="filters"></div>
+        </div>
+        <div class="chart"><canvas id="chart"></canvas></div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
