@@ -7,6 +7,8 @@ a curva de preço de cada ação.
 ```
   Produtor .NET  ──►  Toxiproxy  ──►  Kafka  ──►  Consumidor .NET  ──►  SPA
     (módulo 1)         +3 ms        b3.quotes        (módulo 2)        (gráfico)
+                                                            │
+                                                            └──►  b3.quotes.dlq
 ```
 
 O produtor é o assunto do **módulo 1**: idempotência, chave, batching e
@@ -35,6 +37,11 @@ make feed      # publica cotações sem parar (Ctrl+C encerra)
 make produce   # publica 10 cotações
 make perf      # roda o teste de carga do k6
 make down      # derruba tudo
+```
+
+```bash
+make produce-poison-message   # publica um JSON quebrado
+make consume-dlq              # lê o que o consumidor desviou
 ```
 
 Abra http://localhost:5173, rode `make feed` e veja a curva andar.
@@ -134,6 +141,49 @@ reprocesso passa de 1 para N registros. Depois tire a deduplicação do `Apply` 
 publique a cotação repetida de novo: a curva ganha pontos duplicados. É a
 diferença entre o Kafka entregar pelo menos uma vez e o seu serviço aplicar
 exatamente uma vez.
+
+## A mensagem envenenada
+
+O tópico não valida nada: o que entra no log é o que o produtor escreveu. Um dia
+entra uma mensagem que o consumidor não consegue desserializar — um JSON
+truncado, um campo que mudou de tipo, um bug do outro lado. Ela não melhora com
+retentativa, e um consumidor que insiste fica lendo a mesma mensagem para
+sempre, com a **partição inteira parada atrás dela**.
+
+```bash
+make produce-poison-message
+make logs-consumer
+```
+
+```
+Mensagem envenenada em b3.quotes [[2]] @3 desviada para b3.quotes.dlq [[0]] @0:
+Expected depth to be zero at the end of the JSON payload. ...
+```
+
+O `catch (JsonException)` em `QuoteConsumer.Handle` manda a mensagem inteira
+para `b3.quotes.dlq` e devolve o controle ao laço, que commita e segue. Confira
+que a partição não travou: publique mais cotações de PETR4 (mesma partição da
+envenenada) e veja a curva continuar andando.
+
+A mensagem vai para a DLQ **do jeito que chegou**, com o motivo nos headers:
+
+```bash
+make consume-dlq
+```
+
+```
+x-original-topic:b3.quotes,x-original-offset:3,x-exception:Expected depth...
+    PETR4    {"ticker":"PETR4","price":38.50,"volume":
+```
+
+Dois detalhes que não são acidente:
+
+- **A publicação na DLQ é síncrona**, antes do commit. É a mesma regra do resto
+  do módulo: efeito primeiro, offset depois. Publicar em background e commitar
+  junto faria a mensagem ser *perdida* num crash, em vez de desviada.
+- **Desviar não é o mesmo que ignorar.** Um `catch` que só loga e segue também
+  destrava a partição — e some com o evento. A DLQ é um tópico: dá para olhar,
+  contar, alarmar e reprocessar depois de corrigir o bug.
 
 ## A API do consumidor
 

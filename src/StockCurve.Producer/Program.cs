@@ -41,4 +41,22 @@ app.MapPost("/quotes/{ticker}", async (string ticker, QuoteProducer producer, Ca
     });
 });
 
+// Publica um JSON quebrado no mesmo tópico das cotações. O consumidor não
+// consegue desserializar, desvia para b3.quotes.dlq e segue — é a poison
+// message do módulo 2.
+app.MapPost("/quotes/poison", async (QuoteProducer producer, CancellationToken ct) =>
+{
+    // JSON truncado no meio: nenhuma retentativa conserta isso.
+    const string payload = """{"ticker":"PETR4","price":38.50,"volume":""";
+
+    var result = await producer.PublishRawAsync("PETR4", payload, ct);
+
+    return Results.Ok(new
+    {
+        payload,
+        partition = result.Partition.Value,
+        offset = result.Offset.Value,
+    });
+});
+
 app.Run();

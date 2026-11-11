@@ -1,6 +1,7 @@
 COMPOSE := docker compose
 KAFKA   := $(COMPOSE) exec kafka /opt/kafka/bin
 TOPIC   := b3.quotes
+DLQ     := b3.quotes.dlq
 N       ?= 10
 # Latencia injetada pelo Toxiproxy entre o produtor e o Kafka, em ms.
 MS      ?= 3
@@ -38,6 +39,14 @@ produce-ticker: ## Publica N cotações do mesmo papel (make produce-ticker TICK
 		curl -s -X POST http://localhost:5001/quotes/$(or $(TICKER),PETR4); echo; \
 	done
 
+produce-poison-message: ## Publica um JSON quebrado (o consumidor manda para a DLQ)
+	@curl -s -X POST http://localhost:5001/quotes/poison; echo
+
+consume-dlq: ## Lê a DLQ do início, mostrando os headers de cada mensagem
+	$(KAFKA)/kafka-console-consumer.sh --bootstrap-server kafka:9092 \
+		--topic $(DLQ) --from-beginning \
+		--property print.key=true --property print.headers=true
+
 feed: ## Publica cotações sem parar, para a curva andar na tela (Ctrl+C encerra)
 	@echo "  publicando em http://localhost:5001 — Ctrl+C para parar"
 	@while true; do \
@@ -67,4 +76,4 @@ size: ## Bytes no disco, mensagens e média de bytes/mensagem (efeito da compres
 		| awk -F: '{s+=$$3} END {print s}'); \
 	awk -v b=$$bytes -v m=$$msgs 'BEGIN {printf "  %d bytes / %d mensagens = %.1f bytes por mensagem\n", b, m, (m ? b/m : 0)}'
 
-.PHONY: help up down logs logs-consumer produce produce-ticker feed perf topic consume count size
+.PHONY: help up down logs logs-consumer produce produce-ticker produce-poison-message consume-dlq feed perf topic consume count size

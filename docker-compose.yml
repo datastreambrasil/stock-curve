@@ -29,17 +29,22 @@ services:
       timeout: 10s
       retries: 20
 
-  # Cria o tópico com 3 partições e encerra. Precisamos de mais de uma partição
-  # para dar para mostrar que a chave (ticker) decide onde a mensagem cai.
+  # Cria os tópicos e encerra. b3.quotes tem 3 partições para dar para mostrar
+  # que a chave (ticker) decide onde a mensagem cai; a DLQ tem 1, porque ali o
+  # volume é (ou deveria ser) baixo e ninguém processa em paralelo.
   kafka-init:
     image: apache/kafka:4.1.0
     container_name: stock-curve-kafka-init
     depends_on:
       kafka:
         condition: service_healthy
-    command: >
-      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092
-      --create --if-not-exists --topic b3.quotes --partitions 3 --replication-factor 1
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists --topic b3.quotes --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists --topic b3.quotes.dlq --partitions 1 --replication-factor 1
 
   # Interface web para olhar tópicos, partições e mensagens.
   akhq:
@@ -136,6 +141,7 @@ services:
     environment:
       Kafka__BootstrapServers: kafka:9092
       Kafka__Topic: b3.quotes
+      Kafka__DeadLetterTopic: b3.quotes.dlq
       Kafka__GroupId: stock-curve-chart
       # earliest: um grupo novo nasce lendo tudo que ainda está na retenção, e
       # a curva já aparece cheia na primeira vez que o lab sobe.

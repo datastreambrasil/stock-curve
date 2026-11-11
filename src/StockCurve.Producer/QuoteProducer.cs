@@ -57,6 +57,20 @@ public class QuoteProducer : IDisposable
         return await _producer.ProduceAsync(_settings.Topic, message, ct);
     }
 
+    // Publica um payload cru, sem passar por Quote. Serve para o
+    // produce-poison-message: o tópico não valida nada, então quem escolhe o
+    // que entra no log é quem publica — e é por isso que o consumidor precisa
+    // estar preparado para receber lixo.
+    public async Task<DeliveryResult<string, string>> PublishRawAsync(
+        string key,
+        string payload,
+        CancellationToken ct = default)
+    {
+        var message = new Message<string, string> { Key = key, Value = payload };
+
+        return await _producer.ProduceAsync(_settings.Topic, message, ct);
+    }
+
     public void Dispose()
     {
         // Espera o que ainda estiver no buffer sair antes de encerrar.

@@ -10,6 +10,7 @@ builder.Services.Configure<ConsumerSettings>(builder.Configuration.GetSection("K
 builder.Services.AddSingleton(provider =>
     new QuoteStore(provider.GetRequiredService<IOptions<ConsumerSettings>>().Value.HistorySize));
 
+builder.Services.AddSingleton<DeadLetterProducer>();
 builder.Services.AddHostedService<QuoteConsumer>();
 
 // O SPA roda no Vite (porta 5173) durante o desenvolvimento, em outra origem.

@@ -16,6 +16,7 @@ namespace StockCurve.Consumer;
 public class QuoteConsumer(
     IOptions<ConsumerSettings> options,
     QuoteStore store,
+    DeadLetterProducer deadLetter,
     ILogger<QuoteConsumer> logger) : BackgroundService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -87,10 +88,11 @@ public class QuoteConsumer(
                     continue;
                 }
 
-                Handle(result.Message.Value, result.TopicPartitionOffset);
+                Handle(result);
 
-                // Só agora o offset anda. Entre a linha de cima e esta existe
-                // uma janela: se o processo morrer aqui, este registro volta.
+                // Só agora o offset anda — vale para a cotação que entrou na
+                // curva e para a que foi desviada para a DLQ. Entre a linha de
+                // cima e esta há uma janela: morrer aqui faz o registro voltar.
                 consumer.Commit(result);
             }
         }
@@ -104,23 +106,37 @@ public class QuoteConsumer(
         }
     }
 
-    private void Handle(string payload, TopicPartitionOffset position)
+    private void Handle(ConsumeResult<string, string> result)
     {
-        var quote = JsonSerializer.Deserialize<Quote>(payload, Json);
-        if (quote is null)
+        Quote? quote;
+        try
         {
-            logger.LogWarning("Mensagem sem corpo em {Position}, ignorada.", position);
+            quote = JsonSerializer.Deserialize<Quote>(result.Message.Value, Json);
+        }
+        catch (JsonException ex)
+        {
+            // Poison message: o payload não é um Quote e nunca vai ser. Sem
+            // este catch a exceção subiria, o consumidor reiniciaria no mesmo
+            // offset e leria a mesma mensagem para sempre.
+            deadLetter.Send(result, ex);
+            return;
+        }
+
+        if (quote is null || string.IsNullOrWhiteSpace(quote.Ticker))
+        {
+            // JSON válido, cotação impossível: também não entra na curva.
+            deadLetter.Send(result, new InvalidOperationException("Cotação sem ticker."));
             return;
         }
 
         // Apply devolve false quando esta cotação já estava na curva: é um
         // registro reprocessado depois de uma queda. 
-        if (!store.Apply(quote, position.Partition.Value, position.Offset.Value))
+        if (!store.Apply(quote, result.Partition.Value, result.Offset.Value))
         {
             logger.LogInformation(
                 "Cotação repetida de {Ticker} em {Position}, descartada pela deduplicação.",
                 quote.Ticker,
-                position);
+                result.TopicPartitionOffset);
         }
     }
 }

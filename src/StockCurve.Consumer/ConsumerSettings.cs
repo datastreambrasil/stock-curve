@@ -6,6 +6,9 @@ public class ConsumerSettings
     public string BootstrapServers { get; set; } = "localhost:19092";
     public string Topic { get; set; } = "b3.quotes";
 
+    // Para onde vão as mensagens que o consumidor não consegue processar.
+    public string DeadLetterTopic { get; set; } = "b3.quotes.dlq";
+
     // Todos os consumidores com o mesmo GroupId dividem as partições entre si.
     public string GroupId { get; set; } = "stock-curve-chart";
 
