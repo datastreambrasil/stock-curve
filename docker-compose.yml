@@ -244,3 +244,15 @@ services:
       SUBJECT: b3.quotes-value
       BOOTSTRAP_SERVERS: kafka:9092
       TOPIC: b3.quotes
+
+  # Gera o C# de contracts/quote.avsc com o avrogen (make contracts) -- o aluno
+  # não precisa instalar o dotnet tool, ele já vem dentro da imagem. Só roda
+  # sob demanda, atrás do profile "tools", igual ao schema-tool e ao k6.
+  avrogen:
+    build:
+      context: .
+      dockerfile: contracts/avrogen.Dockerfile
+    container_name: stock-curve-avrogen
+    profiles: ["tools"]
+    volumes:
+      - .:/work

@@ -94,13 +94,11 @@ schema-compat: ## Troca o modo do subject (make schema-compat MODE=Full)
 tools: ## Reconstrói a imagem do schema-tool (rode depois de editar o SchemaTool)
 	@SR_PORT=$(SR_PORT) $(COMPOSE) --profile tools build -q schema-tool
 
-contracts: ## Regera o C# a partir de contracts/quote.avsc (precisa do avrogen)
-	@command -v avrogen >/dev/null 2>&1 || { \
-		echo "  avrogen nao encontrado. Instale com:"; \
-		echo "    dotnet tool install --global Apache.Avro.Tools"; \
-		exit 1; }
+contracts: ## Regera o C# a partir de contracts/quote.avsc, via Docker (avrogen não precisa estar instalado)
+	@SR_PORT=$(SR_PORT) $(COMPOSE) --profile tools build -q avrogen
 	rm -rf src/StockCurve.Contracts/Generated
-	avrogen -s contracts/quote.avsc src/StockCurve.Contracts/Generated
+	@SR_PORT=$(SR_PORT) $(COMPOSE) --profile tools run --rm --no-deps avrogen \
+		-s contracts/quote.avsc src/StockCurve.Contracts/Generated
 	@echo "  gerado em src/StockCurve.Contracts/Generated"
 
 count: ## Mostra o último offset de cada partição (quantas mensagens entraram)
