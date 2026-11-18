@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "Quote",
+  "namespace": "b3.contracts",
+  "doc": "v2 COMPATIVEL: o campo novo nasce com default, entao o leitor novo consegue ler o dado antigo.",
+  "fields": [
+    { "name": "ticker", "type": "string" },
+    { "name": "price", "type": { "type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 2 } },
+    { "name": "volume", "type": "int" },
+    { "name": "tradedAt", "type": { "type": "long", "logicalType": "timestamp-micros" } },
+    {
+      "name": "currency",
+      "type": "string",
+      "default": "BRL",
+      "doc": "O default e o que torna esta mudanca aditiva: o dado gravado pela v1 nao tem este campo, e o leitor v2 o preenche na resolucao."
+    }
+  ]
+}

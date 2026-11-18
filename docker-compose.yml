@@ -46,12 +46,41 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
           --create --if-not-exists --topic b3.quotes.dlq --partitions 1 --replication-factor 1
 
+  # Onde o contrato mora (módulo 3). Guarda os schemas no próprio Kafka, no
+  # tópico interno _schemas — por isso ele depende do broker, e não de um banco.
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.1
+    container_name: stock-curve-schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      # 8081 é a porta canônica do Schema Registry. Se ela já estiver ocupada na
+      # sua máquina: SR_PORT=18081 make up (e ajuste a URL nos comandos).
+      - "${SR_PORT:-8081}:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      # BACKWARD já é o default; deixamos explícito porque é a decisão que
+      # define quem faz deploy primeiro (consumidor) no resto do módulo.
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: backward
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/subjects || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   # Interface web para olhar tópicos, partições e mensagens.
+  #
+  # Com o schema-registry configurado, o AKHQ para de mostrar bytes e passa a
+  # desserializar o Avro: a aba Schema Registry lista os subjects e as versões,
+  # e cada mensagem aparece com o id do schema que a escreveu.
   akhq:
     image: tchiotludo/akhq:0.26.0
     container_name: stock-curve-akhq
     depends_on:
-      kafka:
+      schema-registry:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -62,6 +91,8 @@ services:
             stock-curve:
               properties:
                 bootstrap.servers: "kafka:9092"
+              schema-registry:
+                url: "http://schema-registry:8081"
 
   # Fica no meio do caminho produtor -> Kafka para a gente injetar latência de
   # rede. Em localhost o round-trip é ~0, e aí nenhuma configuração de batching
@@ -105,11 +136,15 @@ services:
         echo "  latencia produtor -> kafka: $${LATENCY_MS}ms por ida-e-volta"
 
   producer:
-    build: ./src/StockCurve.Producer
+    build:
+      context: .
+      dockerfile: src/StockCurve.Producer/Dockerfile
     container_name: stock-curve-producer
     depends_on:
       toxiproxy-init:
         condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
     ports:
       - "5001:8080"
     environment:
@@ -118,6 +153,12 @@ services:
       Kafka__EnableIdempotence: "true"
       Kafka__LingerMs: "5"
       Kafka__CompressionType: none
+      # O produtor fala com o registry direto, por fora do Toxiproxy: a latência
+      # injetada é instrumento do módulo 1 e só atrapalharia a leitura do schema.
+      Kafka__SchemaRegistry__Url: http://schema-registry:8081
+      # true para o lab subir sem passo manual. Em produção isto é false e quem
+      # registra é o pipeline — "make schema-register".
+      Kafka__SchemaRegistry__AutoRegisterSchemas: "true"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 5s
@@ -131,11 +172,15 @@ services:
   # injetada é um instrumento do módulo 1, para o batching do produtor aparecer.
   # Do lado do consumidor ela só atrapalharia a leitura da curva ao vivo.
   consumer:
-    build: ./src/StockCurve.Consumer
+    build:
+      context: .
+      dockerfile: src/StockCurve.Consumer/Dockerfile
     container_name: stock-curve-consumer
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
     ports:
       - "5002:8080"
     environment:
@@ -147,6 +192,7 @@ services:
       # a curva já aparece cheia na primeira vez que o lab sobe.
       Kafka__AutoOffsetReset: earliest
       Kafka__HistorySize: "500"
+      Kafka__SchemaRegistry__Url: http://schema-registry:8081
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 5s
@@ -177,3 +223,24 @@ services:
     environment:
       PRODUCER_URL: http://producer:8080
     entrypoint: ["k6", "run", "/scripts/produce.js"]
+
+  # O passo de contrato do pipeline, em .NET. Só roda sob demanda, igual ao k6.
+  #   make schemas
+  #   make schema-check FILE=contracts/evolucoes/quote-v2-com-default.avsc
+  #   make schema-register FILE=contracts/quote.avsc
+  schema-tool:
+    build:
+      context: .
+      dockerfile: src/StockCurve.SchemaTool/Dockerfile
+    container_name: stock-curve-schema-tool
+    profiles: ["tools"]
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    volumes:
+      - ./contracts:/contracts:ro
+    environment:
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      SUBJECT: b3.quotes-value
+      BOOTSTRAP_SERVERS: kafka:9092
+      TOPIC: b3.quotes

@@ -1,0 +1,28 @@
+{
+  "type": "record",
+  "name": "Quote",
+  "namespace": "b3.contracts",
+  "doc": "Uma cotacao negociada na B3. A chave da mensagem no Kafka e o ticker.",
+  "fields": [
+    {
+      "name": "ticker",
+      "type": "string",
+      "doc": "Codigo do papel na B3 (PETR4, VALE3, ...). Tambem e a chave da mensagem."
+    },
+    {
+      "name": "price",
+      "type": { "type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 2 },
+      "doc": "Preco negociado, em reais. Logical type decimal: dinheiro nao e double."
+    },
+    {
+      "name": "volume",
+      "type": "int",
+      "doc": "Quantidade de papeis negociados."
+    },
+    {
+      "name": "tradedAt",
+      "type": { "type": "long", "logicalType": "timestamp-micros" },
+      "doc": "Instante da negociacao, em UTC. Com o ticker, forma a chave de deduplicacao do consumidor."
+    }
+  ]
+}

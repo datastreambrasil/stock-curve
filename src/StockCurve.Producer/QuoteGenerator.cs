@@ -17,6 +17,9 @@ public static class QuoteGenerator
         ["MGLU3"] = 9.15m,
     };
 
+    // O último instante já emitido para cada papel. Ver TradedAtUnico abaixo.
+    private static readonly Dictionary<string, DateTimeOffset> LastTradedAt = [];
+
     private static readonly Lock Gate = new();
 
     public static string[] Tickers => [.. LastPrice.Keys];
@@ -32,6 +35,7 @@ public static class QuoteGenerator
         }
 
         decimal newPrice;
+        DateTimeOffset tradedAt;
         lock (Gate)
         {
             var oldPrice = LastPrice.TryGetValue(ticker, out var price) ? price : 10.00m;
@@ -43,11 +47,43 @@ public static class QuoteGenerator
             newPrice = Math.Round(newPrice, 2);
 
             LastPrice[ticker] = newPrice;
+
+            // O instante sai de dentro do lock, junto do preço: ele é metade da
+            // chave de negócio (ticker + tradedAt) com que o consumidor
+            // deduplica, e a outra metade do que o AvroSerializer vai gravar.
+            tradedAt = TradedAtUnico(ticker);
         }
 
         var volume = Random.Shared.Next(100, 10_000);
-        var tradedAt = DateTimeOffset.UtcNow;
 
         return new Quote(ticker, newPrice, volume, tradedAt);
     }
+
+    // Garante que (ticker, tradedAt) seja mesmo único.
+    //
+    // Sem isso, sob carga (o k6 abre 100 VUs) duas cotações do mesmo papel caem
+    // no mesmo microssegundo — e o consumidor, que deduplica por essa chave,
+    // descarta a segunda achando que é reentrega. O defeito é silencioso: um
+    // ponto some da curva e nada reclama.
+    //
+    // Microssegundo é a resolução do contrato (timestamp-micros em
+    // contracts/quote.avsc): guardar mais precisão aqui não adiantaria, porque
+    // a serialização truncaria na hora de publicar.
+    //
+    // Só chamar com o Gate tomado.
+    private static DateTimeOffset TradedAtUnico(string ticker)
+    {
+        var agora = Truncar(DateTimeOffset.UtcNow);
+
+        if (LastTradedAt.TryGetValue(ticker, out var anterior) && agora <= anterior)
+        {
+            agora = anterior.AddTicks(TimeSpan.TicksPerMicrosecond);
+        }
+
+        LastTradedAt[ticker] = agora;
+        return agora;
+    }
+
+    private static DateTimeOffset Truncar(DateTimeOffset instante) =>
+        instante.AddTicks(-(instante.Ticks % TimeSpan.TicksPerMicrosecond));
 }

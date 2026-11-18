@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "Quote",
+  "namespace": "b3.contracts",
+  "doc": "v2 INCOMPATIVEL em BACKWARD: campo novo sem default. O registry responde READER_FIELD_MISSING_DEFAULT_VALUE.",
+  "fields": [
+    { "name": "ticker", "type": "string" },
+    { "name": "price", "type": { "type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 2 } },
+    { "name": "volume", "type": "int" },
+    { "name": "tradedAt", "type": { "type": "long", "logicalType": "timestamp-micros" } },
+    { "name": "currency", "type": "string" }
+  ]
+}

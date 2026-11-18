@@ -18,4 +18,11 @@ public class ConsumerSettings
 
     // Quantos pontos de cada papel ficam na memória para desenhar a curva.
     public int HistorySize { get; set; } = 500;
+
+    public SchemaRegistrySettings SchemaRegistry { get; set; } = new();
+}
+
+public class SchemaRegistrySettings
+{
+    public string Url { get; set; } = "http://localhost:8081";
 }

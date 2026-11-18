@@ -1,3 +1,4 @@
+using System.Text;
 using StockCurve.Producer;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -41,15 +42,18 @@ app.MapPost("/quotes/{ticker}", async (string ticker, QuoteProducer producer, Ca
     });
 });
 
-// Publica um JSON quebrado no mesmo tópico das cotações. O consumidor não
-// consegue desserializar, desvia para b3.quotes.dlq e segue — é a poison
-// message do módulo 2.
+// Publica bytes que não são Avro no mesmo tópico das cotações. O consumidor
+// não consegue desserializar, desvia para b3.quotes.dlq e segue — é a poison
+// message do módulo 2, e ela continua existindo depois do contrato: o Schema
+// Registry protege quem usa o serializer, não o tópico.
 app.MapPost("/quotes/poison", async (QuoteProducer producer, CancellationToken ct) =>
 {
-    // JSON truncado no meio: nenhuma retentativa conserta isso.
+    // Bytes que não são Avro: faltam o magic byte e o id do schema, então o
+    // deserializer do consumidor recusa logo no primeiro byte. Nenhuma
+    // retentativa conserta isso.
     const string payload = """{"ticker":"PETR4","price":38.50,"volume":""";
 
-    var result = await producer.PublishRawAsync("PETR4", payload, ct);
+    var result = await producer.PublishRawAsync("PETR4", Encoding.UTF8.GetBytes(payload), ct);
 
     return Results.Ok(new
     {

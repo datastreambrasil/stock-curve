@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>StockCurve.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Apache.Avro traz o AvroDecimal e o leitor/escritor usados pelo
+         Confluent.SchemaRegistry.Serdes.Avro. O Quote.cs em Generated/ foi
+         gerado a partir de contracts/quote.avsc pelo avrogen (make contracts). -->
+    <PackageReference Include="Apache.Avro" Version="1.12.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- O .avsc viaja junto do binário: é ele que o pipeline registra e o que
+         o AvroSerializer compara com o schema do subject. -->
+    <None Include="..\..\contracts\quote.avsc" Link="quote.avsc" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
