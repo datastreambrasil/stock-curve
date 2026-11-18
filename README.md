@@ -325,6 +325,18 @@ O subject nasce em **BACKWARD** (o default do registry). Em BACKWARD o schema
 novo precisa conseguir ler o dado antigo — e por isso quem sobe primeiro é o
 **consumidor**.
 
+> **Antes de começar, garanta que existe uma v1.** Compatibilidade é sempre
+> *contra alguma coisa*: num subject vazio **qualquer** schema é aceito, porque
+> não há com o que comparar. Publique uma cotação primeiro:
+>
+> ```bash
+> make produce N=1
+> make schemas      # tem que mostrar b3.quotes-value v1
+> ```
+>
+> Sem isso o exercício abaixo "passa" em tudo e não ensina nada. O
+> `make schema-register` avisa quando cai nesse caso.
+
 Há duas v2 prontas em `contracts/evolucoes/`. As duas adicionam o mesmo campo
 `currency`. A diferença é uma linha.
 
@@ -357,6 +369,22 @@ Para registrar a versão nova:
 make schema-register FILE=contracts/evolucoes/quote-v2-com-default.avsc
 make schemas    # agora o subject tem v1 e v2
 ```
+
+> **Depois deste registro, a v2 "sem default" passa a ser aceita** — e isso não
+> é bug, é a regra funcionando. BACKWARD compara a candidata só com a **última**
+> versão, e a v2 que você acabou de registrar **sempre escreve** `currency`.
+> Um leitor que exige o campo consegue ler o dado dela.
+>
+> ```bash
+> make schema-register FILE=contracts/evolucoes/quote-v2-sem-default.avsc
+> #   registrado: b3.quotes-value v3 (id 16)
+> #   compatível com a v2, que era a latest.
+> ```
+>
+> Ou seja: "campo sem default não passa em BACKWARD" vale **relativo a uma
+> baseline que não tem o campo**. Depois que ele existe e é sempre escrito,
+> tirar o default é compatível. Para refazer o exercício do zero, derrube e
+> suba o lab (`make down && make up`), que apaga os schemas junto.
 
 Repare que o lab **continua rodando**: o produtor segue publicando com o schema
 v1 que está compilado nele, e o consumidor segue lendo. Adicionar uma versão ao

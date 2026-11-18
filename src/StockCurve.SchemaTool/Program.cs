@@ -3,6 +3,7 @@ using b3.contracts;
 using Confluent.Kafka;
 using Confluent.Kafka.SyncOverAsync;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using Confluent.SchemaRegistry;
 using Confluent.SchemaRegistry.Serdes;
 
@@ -41,7 +42,12 @@ try
 }
 catch (SchemaRegistryException ex)
 {
-    Console.Error.WriteLine($"  registry recusou (erro {ex.ErrorCode}): {ex.Message}");
+    Console.Error.WriteLine($"  registry RECUSOU (erro {ex.ErrorCode}):");
+    foreach (var linha in MotivosDaRecusa(ex.Message))
+    {
+        Console.Error.WriteLine("    " + linha);
+    }
+
     return 1;
 }
 catch (HttpRequestException)
@@ -132,6 +138,26 @@ static async Task<int> LerAsync(ISchemaRegistryClient registry, string[] args)
 static Schema Carregar(string caminho) =>
     new(File.ReadAllText(caminho), SchemaType.Avro);
 
+// O 409 do registry vem com o schema antigo inteiro embutido na mensagem —
+// uma parede de texto que não dá para ler em sala. Aqui fica só o que importa:
+// o errorType e a descrição de cada incompatibilidade.
+static IEnumerable<string> MotivosDaRecusa(string mensagem)
+{
+    var achou = false;
+    foreach (Match m in Regex.Matches(
+        mensagem, @"errorType:'(?<tipo>[^']*)'(?:,\s*description:'(?<desc>.*?)'\s*[,}])?"))
+    {
+        achou = true;
+        var desc = m.Groups["desc"].Value;
+        yield return m.Groups["tipo"].Value + (desc.Length > 0 ? " — " + desc : "");
+    }
+
+    if (!achou)
+    {
+        yield return mensagem.Length > 300 ? mensagem[..300] + "..." : mensagem;
+    }
+}
+
 static async Task<int> ListarAsync(ISchemaRegistryClient registry, string subject)
 {
     var subjects = await registry.GetAllSubjectsAsync();
@@ -193,12 +219,41 @@ static async Task<int> ChearAsync(ISchemaRegistryClient registry, string subject
 
 static async Task<int> RegistrarAsync(ISchemaRegistryClient registry, string subject, string caminho)
 {
+    // Antes de registrar, descobre contra QUEM a compatibilidade vai ser
+    // checada. Sem isso o comando mente por omissão: subject vazio aceita
+    // qualquer schema, e quem está aprendendo conclui que o registry não
+    // checa nada.
+    var subjects = await registry.GetAllSubjectsAsync();
+    var existia = subjects.Contains(subject);
+    RegisteredSchema? baseline = existia ? await registry.GetLatestSchemaAsync(subject) : null;
+
     var id = await registry.RegisterSchemaAsync(subject, Carregar(caminho), normalize: true);
+
+    // O CachedSchemaRegistryClient guarda o "latest": sem limpar, o
+    // GetLatestSchemaAsync abaixo devolveria a versão de ANTES do registro,
+    // porque a consulta do baseline acabou de aquecer o cache.
+    registry.ClearLatestCaches();
     var atual = await registry.GetLatestSchemaAsync(subject);
 
     Console.WriteLine($"  registrado: {subject} v{atual.Version} (id {id})");
 
-    // Schema igual devolve o mesmo id e NÃO cria versão nova.
+    if (!existia)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  ATENÇÃO: o subject não existia. Esta é a v1, e por isso");
+        Console.WriteLine("  NENHUMA compatibilidade foi checada — não há com o que comparar.");
+        Console.WriteLine("  Para exercitar a recusa, publique antes (make produce N=1) ou");
+        Console.WriteLine("  registre primeiro o contrato base (contracts/quote.avsc).");
+    }
+    else if (id == baseline!.Id)
+    {
+        Console.WriteLine($"  (schema já conhecido — devolveu o mesmo id, nenhuma versão criada)");
+    }
+    else
+    {
+        Console.WriteLine($"  compatível com a v{baseline.Version}, que era a latest.");
+    }
+
     return 0;
 }
 
